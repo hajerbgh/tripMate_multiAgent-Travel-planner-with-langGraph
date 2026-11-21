@@ -10,9 +10,11 @@ os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 from typing import TypedDict, Annotated
 import operator
 import uuid
+import time
 
 import psycopg
 from psycopg.rows import dict_row
+from groq import APIStatusError, NotFoundError, RateLimitError
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -52,9 +54,36 @@ if not GROQ_API_KEY:
 # =========================
 
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    api_key=GROQ_API_KEY
+    model=os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
+    api_key=GROQ_API_KEY,
+    max_tokens=1500
 )
+
+
+def invoke_llm(messages):
+    configured_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+    models = [configured_model, "openai/gpt-oss-20b", "openai/gpt-oss-120b"]
+
+    for model in dict.fromkeys(models):
+        for attempt in range(2):
+            try:
+                selected_llm = ChatGroq(
+                    model=model,
+                    api_key=GROQ_API_KEY,
+                    max_tokens=1500
+                )
+                return selected_llm.invoke(messages)
+            except (NotFoundError, APIStatusError) as error:
+                status_code = getattr(error, "status_code", None)
+                if status_code == 404:
+                    break
+                if isinstance(error, RateLimitError) or status_code == 429:
+                    if attempt == 0:
+                        time.sleep(6)
+                        continue
+                raise
+
+    raise RuntimeError("No configured Groq model is currently available.")
 
 
 # =========================
@@ -112,6 +141,8 @@ def hotel_agent(state: TravelState):
 # =========================
 
 def itinerary_agent(state: TravelState):
+    flight_results = state["flight_results"][:5000]
+    hotel_results = state["hotel_results"][:5000]
     prompt = f"""
 Create a complete travel itinerary.
 
@@ -119,15 +150,15 @@ User Query:
 {state['user_query']}
 
 Flight Results:
-{state['flight_results']}
+{flight_results}
 
 Hotel Results:
-{state['hotel_results']}
+{hotel_results}
 
 Make the itinerary practical, budget-aware, and easy to follow.
 """
 
-    response = llm.invoke([
+    response = invoke_llm([
         SystemMessage(content="You are an expert travel planner."),
         HumanMessage(content=prompt)
     ])
@@ -145,6 +176,9 @@ Make the itinerary practical, budget-aware, and easy to follow.
 # =========================
 
 def final_agent(state: TravelState):
+    flight_results = state["flight_results"][:3000]
+    hotel_results = state["hotel_results"][:3000]
+    itinerary = state["itinerary"][:5000]
     final_prompt = f"""
 Generate the final travel response for the user.
 
@@ -152,13 +186,13 @@ User Request:
 {state['user_query']}
 
 Flights:
-{state['flight_results']}
+{flight_results}
 
 Hotels:
-{state['hotel_results']}
+{hotel_results}
 
 Itinerary:
-{state['itinerary']}
+{itinerary}
 
 Format the final answer beautifully using these sections:
 
@@ -175,7 +209,7 @@ Important:
 - Keep the response useful for real travel planning.
 """
 
-    response = llm.invoke([
+    response = invoke_llm([
         SystemMessage(content="You are a professional AI travel booking assistant."),
         HumanMessage(content=final_prompt)
     ])

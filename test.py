@@ -1,6 +1,11 @@
-from tools.tavily_tool import tavily_search
-from tools.flight_tool import search_flights
-results = tavily_search("Best hotels in India") 
-print(results)
-res=search_flights("i want to go to Tunisia from France")
-print(res)
+import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
+from backend import run_travel_agent
+user_input=input("Enter your travel query: ")
+resultat=run_travel_agent(
+    user_input=user_input, thread_id="test_thread")
+print("\n FINAL RESPONSE \n ")
+print(resultat["answer"])
