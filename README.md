@@ -130,6 +130,8 @@ curl -X POST http://127.0.0.1:8000/api/travel \
   -H "Content-Type: application/json" \
   -d '{"message":"Plan a 3-day trip to Tokyo with a budget of $1200"}'
 ```
+## Deployment on render 
+https://tripmate-multiagent-travel-planner-with-b4zp.onrender.com/
 
 ## How the Workflow Works
 
